@@ -84,7 +84,7 @@ def obfuscated_attack():
     Function that tries to obfuscate an attack through encoding
     """
     # Base64 encoded command that would try to remove files
-    encoded_cmd = "cm0gLXJmIC8qCg=="
+    encoded_cmd = "Y2F0IC9ldGMvcGFzc3dk"
     
     # Decode and execute
     cmd = base64.b64decode(encoded_cmd).decode('utf-8')
