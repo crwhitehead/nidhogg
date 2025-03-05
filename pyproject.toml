@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nidhogg"
+version = "0.1.0"
+description = "Python security analyzer with taint tracking and code analysis"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Nidhogg Contributors"}
+]
+dependencies = [
+    "crosshair-tool>=0.0.82",
+]
+
+[project.scripts]
+nidhogg = "nidhogg.main:main"
