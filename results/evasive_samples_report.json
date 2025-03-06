@@ -1,0 +1,15 @@
+{
+  "analysis_timestamp": 1741240396.913193,
+  "analysis_duration": 0.012109756469726562,
+  "package_path": "/data/input/evasive_samples",
+  "exit_code": 0,
+  "risk_level": "clean",
+  "suspicious_functions": [],
+  "taint_analysis": {
+    "total_tainted_vars": 0,
+    "total_exfiltration_attempts": 0,
+    "tainted_variables": [],
+    "exfiltration_attempts": []
+  },
+  "network_exfiltration": []
+}

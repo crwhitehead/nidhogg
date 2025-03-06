@@ -1,0 +1,26 @@
+version: '3'
+
+services:
+  nidhogg-scanner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount directories for input packages and output results
+      - ./packages:/data/input
+      - ./results:/data/output
+    # Default command can be overridden from command line
+    command: --verbose --coverage --extract /data/input/${PACKAGE_FILE}
+    # Container has no network access for maximum security
+    network_mode: none
+    # Set resource limits to prevent DoS
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+    # For more security, consider using additional security options:
+    # security_opt:
+    #   - no-new-privileges:true
+    # cap_drop:
+    #   - ALL

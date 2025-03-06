@@ -3,13 +3,10 @@ import socket
 import ssl
 import urllib.request
 import http.client
-import asyncio
 import requests
 import io
 import json
 import re
-import threading
-import os
 from typing import Any, Dict, List, Optional, Tuple, Union, Callable
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlparse
@@ -70,9 +67,6 @@ class NetworkInterceptor:
         # Track intercepted requests for analysis
         self.intercepted_requests: List[NetworkRequest] = []
         
-        # Create dummy socket files for asyncio operations
-        self._create_dummy_socket_pair()
-        
         # Set up default patches for common network functions
         self._patches = {
             # Socket-related functions
@@ -95,25 +89,7 @@ class NetworkInterceptor:
             
             # SSL-related functions
             ssl.create_default_context: self._mock_ssl_context,
-            
-            # Asyncio functions
-            asyncio.open_connection: self._mock_asyncio_open_connection,
-            asyncio.start_server: self._mock_asyncio_start_server,
         }
-    
-    def _create_dummy_socket_pair(self):
-        """Create a dummy socket pair for asyncio operations"""
-        try:
-            # Create a real socket pair if possible (for fileno)
-            self._rsock, self._wsock = socket.socketpair()
-        except:
-            # Fallback if socketpair is not available
-            self._rsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._wsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            
-        # Set to non-blocking mode
-        self._rsock.setblocking(False)
-        self._wsock.setblocking(False)
     
     def set_response_for_url(self, url: str, response: HttpResponse) -> None:
         """
@@ -179,101 +155,43 @@ class NetworkInterceptor:
         debug(f"Intercepted network request: {method} {url} from {source_file}:{source_line}")
 
     # Mock implementations for different network functions
-    def _mock_socket(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, *args, **kwargs):
-        """Mock socket.socket() calls with proper fileno support for asyncio"""
+    def _mock_socket(self, *args, **kwargs):
+        """Mock socket.socket() calls"""
         class MockSocket:
-            def __init__(self, family=socket.AF_INET, type=socket.SOCK_STREAM, proto=0, *args, **kwargs):
-                self._connected = False
-                self._closed = False
-                self._timeout = None
-                self._blocking = True
-                self._family = family
-                self._type = type
-                self._proto = proto
-                self._host = None
-                self._port = None
-                self._self_outer = self
-                
-                # For asyncio compatibility, use a real socket's fileno or a dummy fd
-                self._real_socket = socket.socket(family, type, proto)
-                
+            def __init__(self, *args, **kwargs):
+                pass
+            
             def connect(self, addr):
                 host, port = addr
-                self._host = host
-                self._port = port
-                self._connected = True
+                self_outer = self
                 self_outer._record_network_request(f"socket://{host}:{port}")
                 return None
             
             def connect_ex(self, addr):
                 host, port = addr
-                self._host = host
-                self._port = port
-                self._connected = True
+                self_outer = self
                 self_outer._record_network_request(f"socket://{host}:{port}")
                 return 0  # Success
             
             def send(self, data):
-                if not self._connected:
-                    raise socket.error("Not connected")
-                if self._closed:
-                    raise socket.error("Socket is closed")
                 return len(data)
                 
             def sendall(self, data):
-                if not self._connected:
-                    raise socket.error("Not connected")
-                if self._closed:
-                    raise socket.error("Socket is closed")
                 return None
                 
             def recv(self, bufsize):
-                if not self._connected:
-                    raise socket.error("Not connected")
-                if self._closed:
-                    raise socket.error("Socket is closed")
                 return b''
                 
             def settimeout(self, timeout):
-                self._timeout = timeout
-                self._real_socket.settimeout(timeout)
-                
-            def setblocking(self, blocking):
-                self._blocking = blocking
-                self._real_socket.setblocking(blocking)
-                
-            def getsockname(self):
-                return ('127.0.0.1', 12345)
-                
-            def getpeername(self):
-                if not self._connected:
-                    raise socket.error("Not connected")
-                return (self._host or '127.0.0.1', self._port or 80)
-                
-            def fileno(self):
-                # This is crucial for asyncio compatibility
-                return self._real_socket.fileno()
+                pass
                 
             def close(self):
-                self._closed = True
-                self._real_socket.close()
+                pass
                 
             def shutdown(self, how):
-                self._closed = True
-                try:
-                    self._real_socket.shutdown(how)
-                except:
-                    pass
-                
-            # Support context manager protocol
-            def __enter__(self):
-                return self
-                
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                self.close()
-                return False
+                pass
         
-        return MockSocket(family, type, proto, *args, **kwargs)
+        return MockSocket(*args, **kwargs)
 
     def _mock_urlopen(self, url, data=None, timeout=None, *args, **kwargs):
         """Mock urllib.request.urlopen() calls"""
@@ -321,14 +239,6 @@ class NetworkInterceptor:
                         return self._headers.get(name)
                 
                 return MockHeaders(self.http_response.headers)
-                
-            # Support context manager protocol
-            def __enter__(self):
-                return self
-                
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                self.close()
-                return False
         
         return MockResponse(response)
 
@@ -456,75 +366,6 @@ class NetworkInterceptor:
                 return sock
         
         return MockSSLContext()
-    
-    async def _mock_asyncio_open_connection(self, host=None, port=None, *args, **kwargs):
-        """Mock asyncio.open_connection for handling async network code"""
-        self._record_network_request(f"asyncio://{host}:{port}")
-        
-        # Create reader and writer for asyncio
-        reader = asyncio.StreamReader()
-        
-        # Create a transport using our socket pair
-        transport = asyncio.Transport()
-        
-        # Create a protocol
-        protocol = asyncio.StreamReaderProtocol(reader)
-        
-        # Add a dummy write method that accepts data
-        async def write_method(data):
-            pass
-            
-        async def drain_method():
-            pass
-            
-        def close_method():
-            pass
-            
-        async def wait_closed_method():
-            pass
-            
-        # Create a writer that uses our dummy methods
-        writer = asyncio.StreamWriter(transport, protocol, reader, None)
-        writer.write = write_method
-        writer.drain = drain_method
-        writer.close = close_method
-        writer.wait_closed = wait_closed_method
-        
-        return reader, writer
-    
-    async def _mock_asyncio_start_server(self, client_connected_cb, host=None, port=None, *args, **kwargs):
-        """Mock asyncio.start_server for handling async network code"""
-        self._record_network_request(f"asyncio-server://{host}:{port}")
-        
-        # Create a dummy server object
-        class MockServer:
-            def __init__(self):
-                self.is_serving = True
-                
-            async def serve_forever(self):
-                # Never complete
-                future = asyncio.Future()
-                return await future
-                
-            def close(self):
-                self.is_serving = False
-                
-            def wait_closed(self):
-                self.is_serving = False
-                
-            def get_loop(self):
-                return asyncio.get_event_loop()
-                
-            # Support context manager protocol
-            async def __aenter__(self):
-                return self
-                
-            async def __aexit__(self, exc_type, exc_val, exc_tb):
-                self.close()
-                await self.wait_closed()
-                return False
-        
-        return MockServer()
 
     def __enter__(self):
         """Enable network interception"""
@@ -537,14 +378,6 @@ class NetworkInterceptor:
         if self.patching_module:
             COMPOSITE_TRACER.pop_config(self.patching_module)
             self.patching_module = None
-        
-        # Clean up the socket pair
-        try:
-            self._rsock.close()
-            self._wsock.close()
-        except:
-            pass
-            
         return False
     
     def analyze_data_exfiltration(self, tainted_data):

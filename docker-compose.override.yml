@@ -1,0 +1,36 @@
+# This file allows for customization of the Docker environment
+# Copy this to docker-compose.override.yml and customize as needed
+
+version: '3'
+
+services:
+  nidhogg-scanner:
+    # Uncomment to add a simulated environment for the malware to find
+    # volumes:
+    #   - ./simulated_environment:/app/env_files:ro
+    
+    # Set specific resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'    # Use 2 CPU cores
+          memory: 4G   # Use 4GB RAM
+    
+    # Uncomment to run as a specific user for extra security
+    # user: 1000:1000  # UID:GID of a non-root user
+    
+    # Uncomment for enhanced security options
+    # security_opt:
+    #   - no-new-privileges:true
+    # cap_drop:
+    #   - ALL
+    # cap_add:
+    #   - SYS_PTRACE  # Only needed for certain analyses
+    
+    # Uncomment to set environment variables
+    # environment:
+    #   - NIDHOGG_MAX_DEPTH=100
+    #   - NIDHOGG_TIMEOUT=60
+    
+    # Override the default command
+    # command: --verbose --coverage --extract /data/input/${PACKAGE_FILE}

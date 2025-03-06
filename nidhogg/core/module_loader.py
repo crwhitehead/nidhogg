@@ -1,6 +1,7 @@
 import importlib.util
 import inspect
 import contextlib
+import asyncio
 from pathlib import Path
 import sys
 import types
@@ -64,7 +65,22 @@ def analyze_module(module, spec, sim_io, tracers=None):
                 
                 debug(f"Executing function {name} with args {args}")
                 with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
-                    obj(**args)
+                    result = obj(**args)
+                    
+                    # Handle coroutines properly
+                    if inspect.iscoroutine(result):
+                        debug(f"Function {name} returned a coroutine - running with asyncio")
+                        try:
+                            # Create a new event loop for this coroutine
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(result)
+                            loop.close()
+                        except Exception as e:
+                            debug(f"Error executing coroutine {name}: {e}")
+                        finally:
+                            # Clean up the event loop
+                            asyncio.set_event_loop(None)
             except Exception as e:
                 debug(f"Error executing {name}: {e}")
 
@@ -116,7 +132,22 @@ def enhanced_analyze_module(module, spec, sim_io, tracers=None, enable_coverage=
                         debug(f"Executing function {name} with boundary args {boundary_args}")
                         try:
                             with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
-                                obj(**boundary_args)
+                                result = obj(**boundary_args)
+                                
+                                # Handle coroutines properly
+                                if inspect.iscoroutine(result):
+                                    debug(f"Function {name} returned a coroutine - running with asyncio")
+                                    try:
+                                        # Create a new event loop for this coroutine
+                                        loop = asyncio.new_event_loop()
+                                        asyncio.set_event_loop(loop)
+                                        loop.run_until_complete(result)
+                                        loop.close()
+                                    except Exception as e:
+                                        debug(f"Error executing coroutine {name}: {e}")
+                                    finally:
+                                        # Clean up the event loop
+                                        asyncio.set_event_loop(None)
                         except Exception as e:
                             debug(f"Expected error with boundary values in {name}: {e}")
                 
