@@ -18,7 +18,7 @@ def main():
     if args.verbose:
         set_debug(True)
     
-    sys.exit(detect_malware(args.targets, args.verbose, args.coverage, enable_taint=False))
+    sys.exit(detect_malware(args.targets, args.verbose, args.coverage))
 
 if __name__ == "__main__":
     main()
