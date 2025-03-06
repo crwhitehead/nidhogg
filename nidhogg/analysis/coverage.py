@@ -128,23 +128,14 @@ def explore_paths(func, sim_io=None, max_combinations=5):
         exceptions = []
         
         # Generate all possible combinations if feasible
-        if all(len(values) <= 3 for values in param_values.values()):
-            all_combinations = []
-            keys = list(param_values.keys())
-            for values in itertools.product(*[param_values[k] for k in keys]):
-                all_combinations.append(dict(zip(keys, values)))
-            # Shuffle and limit to max_combinations
-            random.shuffle(all_combinations)
-            combinations = all_combinations[:max_combinations]
-        else:
-            # Otherwise randomly sample
-            combinations = []
-            for _ in range(max_combinations):
-                args = {}
-                for param_name, values in param_values.items():
-                    args[param_name] = random.choice(values)
-                combinations.append(args)
-        
+        # Otherwise randomly sample
+        combinations = []
+        for _ in range(max_combinations):
+            args = {}
+            for param_name, values in param_values.items():
+                args[param_name] = random.choice(values)
+            combinations.append(args)
+    
         # Execute with each combination
         for args in combinations:
             try:
