@@ -109,21 +109,32 @@ echo -e "${YELLOW}Timeout set to $TIMEOUT seconds${NC}"
 
 
 # Run the Docker container with timeout
-DOCKER_CMD="PACKAGE_FILE=$PACKAGE_NAME docker-compose run --rm nidhogg-scanner $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME"
+DOCKER_CMD="PACKAGE_FILE=$PACKAGE_NAME docker-compose run -t --rm nidhogg-scanner $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME"
 echo "${BLUE} Updating docker image!"
 docker-compose build
 
 echo -e "${BLUE}Running command: $DOCKER_CMD${NC}"
-timeout "$TIMEOUT" bash -c "$DOCKER_CMD" || {
-    EXIT_CODE=$?
-    if [ $EXIT_CODE -eq 124 ]; then
-        echo -e "${RED}Analysis timed out after $TIMEOUT seconds!${NC}"
-        echo -e "${YELLOW}This could indicate a hang or infinite loop in the malicious code.${NC}"
-    else
-        echo -e "${RED}Analysis failed with exit code: $EXIT_CODE${NC}"
-    fi
-}
-echo -e "Comamnd finished!"
+
+echo -e "Start time!"
+
+echo -e "${BLUE}Running command: $DOCKER_CMD${NC}"
+
+# Force TTY allocation and disable buffering
+timeout --foreground "$TIMEOUT" bash -c "$DOCKER_CMD"
+EXIT_CODE=$?
+
+# Process exit code as before
+if [ $EXIT_CODE -eq 0 ]; then
+    echo -e "${GREEN}Command completed successfully!${NC}"
+elif [ $EXIT_CODE -eq 124 ]; then
+    echo -e "${RED}Analysis timed out after $TIMEOUT seconds!${NC}"
+    echo -e "${YELLOW}This could indicate a hang or infinite loop in the malicious code.${NC}"
+else
+    echo -e "${RED}Analysis failed with exit code: $EXIT_CODE${NC}"
+fi
+
+echo -e "Command finished!"
+echo -e "Command finished!"
 
 # Check if report was generated
 REPORT_PATH="$OUTPUT_DIR/${PACKAGE_NAME}_report.json"

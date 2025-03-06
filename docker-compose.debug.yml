@@ -1,23 +1,21 @@
 version: '3'
 
 services:
-  nidhogg-scanner:
+  nidhogg-debug:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.debug
     volumes:
       # Mount directories for input packages and output results
       - ./packages:/data/input
       - ./results:/data/output
+      # For troubleshooting, mount the safe_scanner.py file
+      - ./safe_scanner.py:/app/safe_scanner.py
     # Default command can be overridden from command line
-    command: --verbose --coverage --extract /data/input/${PACKAGE_FILE}
-    # Container has no network access for maximum security
-    network_mode: none
+    command: bash
     # Set resource limits to prevent DoS
     deploy:
       resources:
         limits:
           cpus: '1'
           memory: 2G
-    # Default to non-root user (already set in Dockerfile)
-    # user: nidhogg
