@@ -1,3 +1,4 @@
+
 import io
 import builtins
 import sys
@@ -44,6 +45,11 @@ def safe_urlopen(url, *args, **kwargs):
             return f"[BLOCKED URL] Would have fetched: {self.url}".encode()
         def close(self):
             pass
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.close()
+            return False
     return FakeResponse(url)
 
 def safe_open(file, *args, **kwargs):

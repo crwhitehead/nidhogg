@@ -1,17 +1,33 @@
+# Modify nidhogg/core/simulator.py
+
 import io
 import builtins
 import contextlib
+import random
+import string
 
 class SimulatedIO:
     """Class for handling simulated I/O during code execution"""
     def __init__(self):
         self.stdout = io.StringIO()
         self.stderr = io.StringIO()
-        self.stdin_data = "Simulated input"
+        self.original_input = builtins.input
+        self.original_print = builtins.print
     
     def input(self, prompt=""):
-        """Simulated input function"""
-        return self.stdin_data
+        """Simulated input function that returns random strings"""
+        # Write the prompt to stdout if there is one
+        if prompt:
+            self.stdout.write(prompt)
+        
+        # Generate a random string of varying length (between 5 and 20 characters)
+        length = random.randint(5, 20)
+        random_input = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(length))
+        
+        # Log the generated input
+        self.stdout.write(f"[SIMULATED INPUT] Generated: {random_input}\n")
+        
+        return random_input
     
     def print(self, *args, **kwargs):
         """Simulated print function"""
@@ -25,8 +41,6 @@ class SimulatedIO:
 
     def setup(self):
         """Set up the simulated environment by replacing builtin I/O functions"""
-        self.original_input = builtins.input
-        self.original_print = builtins.print
         builtins.input = self.input
         builtins.print = self.print
     
@@ -42,4 +56,3 @@ class SimulatedIO:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.restore()
         return False  # Don't suppress exceptions
-

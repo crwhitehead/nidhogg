@@ -16,10 +16,10 @@ def setup_crosshair_options() -> AnalysisOptions:
         enabled=True,
         specs_complete=False,
         max_iterations=1000,
-        timeout=60.0,
-        per_condition_timeout=30.0,
-        per_path_timeout=10.0,
-        max_uninteresting_iterations=50,
+        timeout=10.0,
+        per_condition_timeout=4.0,
+        per_path_timeout=1.0,
+        max_uninteresting_iterations=5,
         report_all=True,
         report_verbose=True
     )
@@ -43,8 +43,8 @@ def analyze_with_crosshair(func, sim_io=None) -> Dict[str, Any]:
         post: True
         """
         if sim_io:
-            with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
-                return func(*args, **kwargs)
+            #with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
+            return func(*args, **kwargs)
         else:
             return func(*args, **kwargs)
     
@@ -80,7 +80,7 @@ def generate_boundary_values(param_type: str) -> list:
         List of boundary values to test
     """
     if "str" in param_type.lower():
-        return ["", "   ", "test", "'; DROP TABLE users; --", "a" * 1000]
+        return ["", "   ", "test", "'; SHOW TABLES; --", "a" * 1000]
     elif "int" in param_type.lower():
         return [0, 1, -1, sys.maxsize, -sys.maxsize - 1]
     elif "float" in param_type.lower():
