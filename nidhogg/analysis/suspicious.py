@@ -96,7 +96,8 @@ class SuspiciousFunctionTracer(TracingModule):
             "/usr/lib/python",
             "lib/python",
             "site-packages/",
-            "__pycache__"
+            "__pycache__",
+            "nidhogg"
         ]
     
     def is_system_path(self, path: str) -> bool:
@@ -108,7 +109,7 @@ class SuspiciousFunctionTracer(TracingModule):
         try:
             fn_name = getattr(fn, "__name__", None)
             fn_module = getattr(fn, "__module__", None)
-            
+            #print("Calling ", fn_name, fn_module)
             if fn_name and fn_module:
                 # Skip system modules
                 filename = frame.f_code.co_filename

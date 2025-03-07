@@ -173,7 +173,7 @@ def analyze_target_recursively(target_path: str, suspicious_tracer: SuspiciousFu
     file_str = str(path)
     
     # Skip files that look like they might be system files
-    if any(x in file_str for x in ['venv', '__pycache__', 'site-packages']):
+    if any(x in file_str for x in ["nidhogg", 'venv', '__pycache__', 'site-packages']):
         return
     
     # Process based on file type

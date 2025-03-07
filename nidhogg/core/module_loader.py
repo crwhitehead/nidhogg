@@ -1,25 +1,21 @@
+import importlib
 import importlib.util
 import inspect
 import contextlib
-import asyncio
 from pathlib import Path
 import sys
 import types
-import os
 from typing import Tuple, Dict, Any, Optional, List
+import builtins
 
 from nidhogg.core.simulator import SimulatedIO
 from nidhogg.utils.debug import debug
-
-# Increase recursion limit to handle more complex packages
-sys.setrecursionlimit(10000)
+from nidhogg.core.import_handler import safe_import
 
 def load_module_from_file(file_path) -> Tuple[types.ModuleType, importlib.machinery.ModuleSpec]:
     """Load a Python module from a file path without importing it"""
     file_path = Path(file_path).resolve()
-    
-    # Use a more unique module name to avoid conflicts
-    module_name = f"nidhogg_analyzed_{file_path.stem}_{hash(str(file_path))}"
+    module_name = file_path.stem
     
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     if spec is None:
@@ -27,86 +23,65 @@ def load_module_from_file(file_path) -> Tuple[types.ModuleType, importlib.machin
     
     module = importlib.util.module_from_spec(spec)
     
-    # Add the module's directory to sys.path temporarily to help with imports
-    module_dir = os.path.dirname(file_path)
-    sys.path.insert(0, module_dir)
+    # Temporarily modify sys.path to allow relative imports
+
+    original_import = builtins.__import__
+    builtins.__import__ = safe_import
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        debug(f"Error executing module: {e}")
+    finally:
+        builtins.__import__ = original_import
     
     return module, spec
 
 def analyze_module(module, spec, sim_io, tracers=None):
     """Analyze a module by loading it and executing its functions"""
-    # Store original path
-    original_path = list(sys.path)
-    module_dir = os.path.dirname(spec.origin)
-    
+    # Load the module - this executes top-level code
     try:
-        # Add module's directory to path temporarily to help with imports
-        if module_dir not in sys.path:
-            sys.path.insert(0, module_dir)
-            
-        # Load the module - this executes top-level code
-        try:
-            with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
-                spec.loader.exec_module(module)
-        except Exception as e:
-            debug(f"Error executing module: {e}")
-        
-        # Find and execute functions in the module
-        for name, obj in inspect.getmembers(module):
-            # Only analyze functions and methods defined in this module
-            if inspect.isfunction(obj) and obj.__module__ == module.__name__:
-                try:
-                    # Get default arguments for the function
-                    sig = inspect.signature(obj)
-                    args = {}
-                    for param_name, param in sig.parameters.items():
-                        if param.default is not inspect.Parameter.empty:
-                            args[param_name] = param.default
-                        elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
-                            # For simple types, use safe defaults
-                            if param.annotation is int:
-                                args[param_name] = 0
-                            elif param.annotation is str:
-                                args[param_name] = ""
-                            elif param.annotation is bool:
-                                args[param_name] = False
-                            elif param.annotation is list or str(param.annotation).startswith("typing.List"):
-                                args[param_name] = []
-                            elif param.annotation is dict or str(param.annotation).startswith("typing.Dict"):
-                                args[param_name] = {}
-                            elif param.annotation is set or str(param.annotation).startswith("typing.Set"):
-                                args[param_name] = set()
-                            else:
-                                args[param_name] = None
-                    
-                    # Skip if we have parameters we can't handle
-                    if len(args) != len(sig.parameters) and len(sig.parameters) > 0:
-                        debug(f"Skipping {name}: cannot determine all argument values")
-                        continue
-                    
-                    debug(f"Executing function {name} with args {args}")
-                    with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
-                        result = obj(**args)
-                        
-                        # Handle coroutines properly
-                        if inspect.iscoroutine(result):
-                            debug(f"Function {name} returned a coroutine - running with asyncio")
-                            try:
-                                # Create a new event loop for this coroutine
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                loop.run_until_complete(result)
-                                loop.close()
-                            except Exception as e:
-                                debug(f"Error executing coroutine {name}: {e}")
-                            finally:
-                                # Clean up the event loop
-                                asyncio.set_event_loop(None)
-                except Exception as e:
-                    debug(f"Error executing {name}: {e}")
-    finally:
-        # Restore original sys.path
-        sys.path = original_path
+        with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
+            spec.loader.exec_module(module)
+    except Exception as e:
+        debug(f"Error executing module: {e}")
+    
+    # Find and execute functions in the module
+    for name, obj in inspect.getmembers(module):
+        if inspect.isfunction(obj) and obj.__module__ == module.__name__:
+            try:
+                # Get default arguments for the function
+                sig = inspect.signature(obj)
+                args = {}
+                for param_name, param in sig.parameters.items():
+                    if param.default is not inspect.Parameter.empty:
+                        args[param_name] = param.default
+                    elif param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                        # For simple types, use safe defaults
+                        if param.annotation is int:
+                            args[param_name] = 0
+                        elif param.annotation is str:
+                            args[param_name] = ""
+                        elif param.annotation is bool:
+                            args[param_name] = False
+                        elif param.annotation is list or str(param.annotation).startswith("typing.List"):
+                            args[param_name] = []
+                        elif param.annotation is dict or str(param.annotation).startswith("typing.Dict"):
+                            args[param_name] = {}
+                        elif param.annotation is set or str(param.annotation).startswith("typing.Set"):
+                            args[param_name] = set()
+                        else:
+                            args[param_name] = None
+                
+                # Skip if we have parameters we can't handle
+                if len(args) != len(sig.parameters) and len(sig.parameters) > 0:
+                    debug(f"Skipping {name}: cannot determine all argument values")
+                    continue
+                
+                debug(f"Executing function {name} with args {args}")
+                with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
+                    obj(**args)
+            except Exception as e:
+                debug(f"Error executing {name}: {e}")
 
 def enhanced_analyze_module(module, spec, sim_io, tracers=None, enable_coverage=False):
     """Enhanced module analysis with better path coverage"""
@@ -156,22 +131,7 @@ def enhanced_analyze_module(module, spec, sim_io, tracers=None, enable_coverage=
                         debug(f"Executing function {name} with boundary args {boundary_args}")
                         try:
                             with contextlib.redirect_stdout(sim_io.stdout), contextlib.redirect_stderr(sim_io.stderr):
-                                result = obj(**boundary_args)
-                                
-                                # Handle coroutines properly
-                                if inspect.iscoroutine(result):
-                                    debug(f"Function {name} returned a coroutine - running with asyncio")
-                                    try:
-                                        # Create a new event loop for this coroutine
-                                        loop = asyncio.new_event_loop()
-                                        asyncio.set_event_loop(loop)
-                                        loop.run_until_complete(result)
-                                        loop.close()
-                                    except Exception as e:
-                                        debug(f"Error executing coroutine {name}: {e}")
-                                    finally:
-                                        # Clean up the event loop
-                                        asyncio.set_event_loop(None)
+                                obj(**boundary_args)
                         except Exception as e:
                             debug(f"Expected error with boundary values in {name}: {e}")
                 

@@ -7,6 +7,6 @@ set -e
 echo "Starting Nidhogg scanner with arguments: $@"
 
 # Run the scan_package.py script with all arguments passed to this script
-exec python /app/scan_package.py "$@"
+exec timeout 60 python /app/scan_package.py "$@"
 
 exit

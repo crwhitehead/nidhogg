@@ -12,6 +12,8 @@ RUN groupadd -r nidhogg && useradd -r -g nidhogg -m -d /home/nidhogg nidhogg
 # Set up working directory
 WORKDIR /app
 
+RUN pip install --no-cache-dir python-magic crosshair-tool requests beautifulsoup4
+
 # Copy the Nidhogg source code
 COPY nidhogg/ /app/nidhogg/
 COPY setup.py /app/
@@ -20,7 +22,6 @@ COPY examples/ /app/examples/
 
 # Install Nidhogg and its dependencies
 RUN pip install --no-cache-dir -e .
-RUN pip install --no-cache-dir python-magic crosshair-tool requests beautifulsoup4
 
 # Create directories for analysis and results
 RUN mkdir -p /data/input /data/output && \
