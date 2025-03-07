@@ -107,23 +107,19 @@ echo -e "${YELLOW}Starting Nidhogg analysis of: $PACKAGE_NAME${NC}"
 echo -e "${YELLOW}This will run in an isolated Docker container with no network access${NC}"
 echo -e "${YELLOW}Timeout set to $TIMEOUT seconds${NC}"
 
+# Update docker image
+echo -e "${BLUE}Updating docker image...${NC}"
+docker-compose build
 
 # Run the Docker container with timeout
 DOCKER_CMD="PACKAGE_FILE=$PACKAGE_NAME docker-compose run -t --rm nidhogg-scanner $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME"
-echo "${BLUE} Updating docker image!"
-docker-compose build
-
-echo -e "${BLUE}Running command: $DOCKER_CMD${NC}"
-
-echo -e "Start time!"
-
 echo -e "${BLUE}Running command: $DOCKER_CMD${NC}"
 
 # Force TTY allocation and disable buffering
 timeout --foreground "$TIMEOUT" bash -c "$DOCKER_CMD"
 EXIT_CODE=$?
 
-# Process exit code as before
+# Process exit code
 if [ $EXIT_CODE -eq 0 ]; then
     echo -e "${GREEN}Command completed successfully!${NC}"
 elif [ $EXIT_CODE -eq 124 ]; then
@@ -133,8 +129,7 @@ else
     echo -e "${RED}Analysis failed with exit code: $EXIT_CODE${NC}"
 fi
 
-echo -e "Command finished!"
-echo -e "Command finished!"
+echo -e "${BLUE}Command finished!${NC}"
 
 # Check if report was generated
 REPORT_PATH="$OUTPUT_DIR/${PACKAGE_NAME}_report.json"
@@ -145,12 +140,13 @@ if [ -f "$REPORT_PATH" ]; then
     # Show a summary of the report
     echo -e "${BLUE}Summary:${NC}"
     
-    # Extract some key information from the JSON report
+    # Extract key information from the JSON report
     if command -v jq &> /dev/null; then
         RISK_LEVEL=$(jq -r '.risk_level' "$REPORT_PATH")
-        SUSPICIOUS_COUNT=$(jq '.suspicious_functions | length' "$REPORT_PATH")
-        TAINTED_VARS=$(jq '.taint_analysis.total_tainted_vars' "$REPORT_PATH")
-        EXFIL_ATTEMPTS=$(jq '.taint_analysis.total_exfiltration_attempts' "$REPORT_PATH")
+        # Use the specific suspicious_functions_count field or count the array length
+        SUSPICIOUS_COUNT=$(jq '.suspicious_functions_count // (.suspicious_functions | length)' "$REPORT_PATH")
+        TAINTED_VARS=$(jq '.taint_analysis.total_tainted_vars // "0"' "$REPORT_PATH")
+        EXFIL_ATTEMPTS=$(jq '.taint_analysis.total_exfiltration_attempts // "0"' "$REPORT_PATH")
         
         echo -e "Risk level: ${YELLOW}$RISK_LEVEL${NC}"
         echo -e "Suspicious functions: ${YELLOW}$SUSPICIOUS_COUNT${NC}"
@@ -159,6 +155,9 @@ if [ -f "$REPORT_PATH" ]; then
     else
         echo -e "${YELLOW}Install jq for a better summary view${NC}"
         echo -e "See the full report at: $REPORT_PATH"
+        # Simple grep fallback for systems without jq
+        echo -e "Risk level: $(grep -o '"risk_level":[^,]*' "$REPORT_PATH" | cut -d ':' -f2 | tr -d '"')"
+        echo -e "Suspicious functions: $(grep -o '"suspicious_functions_count":[^,]*' "$REPORT_PATH" | cut -d ':' -f2 || echo "unknown")"
     fi
 else
     echo -e "${RED}No report was generated!${NC}"

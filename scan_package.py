@@ -24,83 +24,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 # Import Nidhogg components
-from nidhogg.analysis.analyzer import detect_malware
-from nidhogg.analysis.suspicious import SuspiciousFunctionTracer
-from nidhogg.core.network_interceptor import NetworkInterceptor
+from nidhogg.analysis.analyzer import detect_malware, global_suspicious_tracer, extract_package
 from nidhogg.utils.debug import set_debug
-
-
-def extract_package(package_path: str, target_dir: Optional[str] = None) -> str:
-    """
-    Extract a Python package archive into a directory for analysis
-    
-    Args:
-        package_path: Path to the package file (.whl, .tar.gz, etc.)
-        target_dir: Optional directory to extract into (uses temp dir if None)
-        
-    Returns:
-        Path to the extraction directory
-    """
-    print(f"Extracting package: {package_path}")
-    
-    if target_dir is None:
-        extract_dir = tempfile.mkdtemp(prefix="nidhogg_analysis_")
-    else:
-        extract_dir = target_dir
-        os.makedirs(extract_dir, exist_ok=True)
-    
-    package_path = os.path.abspath(package_path)
-    
-    try:
-        if package_path.endswith('.whl'):
-            # Extract wheel file (essentially a zip file)
-            import zipfile
-            with zipfile.ZipFile(package_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-        elif package_path.endswith('.tar.gz') or package_path.endswith('.tgz'):
-            # Extract tar.gz file
-            import tarfile
-            with tarfile.open(package_path, 'r:gz') as tar_ref:
-                tar_ref.extractall(extract_dir)
-            
-        elif package_path.endswith('.zip'):
-            # Extract zip file
-            import zipfile
-            with zipfile.ZipFile(package_path, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-        
-        else:
-            # Try to determine from file header
-            import magic
-            file_type = magic.from_file(package_path, mime=True)
-            
-            if file_type == 'application/gzip' or file_type == 'application/x-gzip':
-                import tarfile
-                with tarfile.open(package_path, 'r:gz') as tar_ref:
-                    tar_ref.extractall(extract_dir)
-            
-            elif file_type == 'application/zip':
-                import zipfile
-                with zipfile.ZipFile(package_path, 'r') as zip_ref:
-                    zip_ref.extractall(extract_dir)
-            
-            else:
-                print(f"Unknown package format: {file_type}")
-                print("Assuming it's a directory containing Python files.")
-                if package_path != extract_dir:
-                    shutil.copytree(package_path, extract_dir, dirs_exist_ok=True)
-        
-        print(f"Package extracted to: {extract_dir}")
-        return extract_dir
-    
-    except Exception as e:
-        print(f"Error extracting package: {e}")
-        print(traceback.format_exc())
-        if target_dir is None:
-            # Only remove the directory if we created it
-            shutil.rmtree(extract_dir, ignore_errors=True)
-        raise
 
 
 def analyze_package(package_path: str, output_dir: str, verbose: bool = False, 
@@ -132,23 +57,25 @@ def analyze_package(package_path: str, output_dir: str, verbose: bool = False,
     scan_path = package_path
     temp_dir = None
     
-    if extract:
+    if extract and not os.path.isdir(package_path):
         try:
-            temp_dir = extract_package(package_path)
-            scan_path = temp_dir
+            temp_dir = tempfile.mkdtemp(prefix="nidhogg_analysis_")
+            scan_path = extract_package(package_path, temp_dir)
         except Exception as e:
             print(f"Failed to extract package: {e}")
             # Continue with original path
+            scan_path = package_path
     
     try:
-        # Initialize tracers
-        suspicious_tracer = SuspiciousFunctionTracer()
+        # Reset the global tracer's findings
+        global_suspicious_tracer.findings = []
         
         # Run malware detection - this returns an exit code, but we want the data
         status_code = detect_malware([scan_path], verbose, coverage)
         
-        # Gather results
-        suspicious_findings = suspicious_tracer.findings
+        # Gather results - important: get findings AFTER the scan
+        # Use the global tracer that was used during detection
+        suspicious_findings = global_suspicious_tracer.get_findings()
         
         # Create a comprehensive report
         report = {
@@ -156,8 +83,9 @@ def analyze_package(package_path: str, output_dir: str, verbose: bool = False,
             "analysis_duration": time.time() - start_time,
             "package_path": package_path,
             "exit_code": status_code,
-            "risk_level": "malicious" if status_code > 0 else "clean",
+            "risk_level": "malicious" if status_code > 0 or len(suspicious_findings) > 0 else "clean",
             "suspicious_functions": suspicious_findings,
+            "suspicious_functions_count": len(suspicious_findings)
         }
         
         # Save full report to output directory
@@ -175,7 +103,7 @@ def analyze_package(package_path: str, output_dir: str, verbose: bool = False,
     
     finally:
         # Clean up the temporary directory if we created one
-        if temp_dir and extract:
+        if temp_dir and temp_dir != package_path:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 
