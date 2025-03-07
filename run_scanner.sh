@@ -186,11 +186,13 @@ services:
     user: "$(id -u):$(id -g)"
 EOF
 
+docker-compose build
 # Run the Docker container with timeout
 echo -e "${BLUE}Running docker-compose with override file...${NC}"
 export PACKAGE_FILE="$PACKAGE_NAME"
 timeout --foreground "$TIMEOUT" docker-compose run --rm nidhogg-scanner
 EXIT_CODE=$?
+
 
 # Clean up the temporary override file
 rm -f docker-compose.override.yml
