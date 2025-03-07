@@ -1,9 +1,0 @@
-version: '3'
-
-services:
-  nidhogg-scanner:
-    volumes:
-      - ./nidhogg-operating-packages:/data/input
-      - ./nidhogg-operating-results:/data/output
-    command: --verbose  --extract /data/input/2024-12-04-ultralytics-v8.3.41.zip --output-file=results.json
-    user: "1000:1000"

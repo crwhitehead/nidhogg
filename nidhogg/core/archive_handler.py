@@ -4,6 +4,7 @@ import tarfile
 import os
 import tempfile
 import shutil
+import magic  # python-magic for file type detection
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -36,6 +37,22 @@ class ArchiveHandler:
             file_path_lower.endswith('.tgz') or
             file_path_lower.endswith('.tar.bz2')
         )
+    
+    @staticmethod
+    def is_encrypted_zipfile(zip_path: str, zip_info: zipfile.ZipInfo) -> bool:
+        """
+        Check if a file within a ZIP archive is encrypted
+        
+        Args:
+            zip_path: Path to the ZIP file
+            zip_info: ZipInfo object for the file to check
+            
+        Returns:
+            Boolean indicating if the file is encrypted
+        """
+        # Check for the encryption flag in the ZIP file header
+        # The 6th bit (0x1) in the general purpose bit flag indicates encryption
+        return (zip_info.flag_bits & 0x1) > 0
     
     @staticmethod
     def extract_archive(archive_path: str, output_dir: Optional[str] = None) -> Tuple[bool, str, List[str]]:
@@ -106,25 +123,26 @@ class ArchiveHandler:
                         if extracted_dir:
                             os.makedirs(extracted_dir, exist_ok=True)
                         
-                        try:
-                            with zip_ref.open(zip_info) as source, open(extracted_path, 'wb') as target:
-                                shutil.copyfileobj(source, target)
-                            extracted_files.append(extracted_path)
-                        except RuntimeError as e:
-                            if 'password required' in str(e).lower() or 'encrypted' in str(e).lower():
-                                debug(f"Encrypted file detected in ZIP: {zip_info.filename}, trying with default password")
-                                # Try again with password
-                                try:
-                                    with zip_ref.open(zip_info, pwd=ArchiveHandler.DEFAULT_PASSWORD.encode()) as source, open(extracted_path, 'wb') as target:
-                                        shutil.copyfileobj(source, target)
-                                    extracted_files.append(extracted_path)
-                                    debug(f"Successfully extracted {zip_info.filename} using default password")
-                                except Exception as pwd_error:
-                                    debug(f"Failed to extract with password: {str(pwd_error)}")
-                            else:
+                        # Properly check if file is encrypted before attempting extraction
+                        is_encrypted = ArchiveHandler.is_encrypted_zipfile(zip_path, zip_info)
+                        
+                        if is_encrypted:
+                            debug(f"Encrypted file detected in ZIP: {zip_info.filename}, trying with default password")
+                            try:
+                                with zip_ref.open(zip_info, pwd=ArchiveHandler.DEFAULT_PASSWORD.encode()) as source, open(extracted_path, 'wb') as target:
+                                    shutil.copyfileobj(source, target)
+                                extracted_files.append(extracted_path)
+                                debug(f"Successfully extracted {zip_info.filename} using default password")
+                            except Exception as pwd_error:
+                                debug(f"Failed to extract with password: {str(pwd_error)}")
+                        else:
+                            # Not encrypted, extract normally
+                            try:
+                                with zip_ref.open(zip_info) as source, open(extracted_path, 'wb') as target:
+                                    shutil.copyfileobj(source, target)
+                                extracted_files.append(extracted_path)
+                            except Exception as e:
                                 debug(f"Error extracting {zip_info.filename}: {str(e)}")
-                        except Exception as e:
-                            debug(f"Error extracting {zip_info.filename}: {str(e)}")
                 
             return True, extracted_files
             
