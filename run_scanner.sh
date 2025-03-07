@@ -1,5 +1,5 @@
 #!/bin/bash
-# run_scanner.sh - Run Nidhogg scanner in Docker container
+# run_scanner.sh - Run Nidhogg scanner in Docker container with secure permissions
 
 set -e
 
@@ -19,13 +19,12 @@ print_usage() {
     echo -e "  -v, --verbose          Enable verbose output"
     echo -e "  -c, --coverage         Enable enhanced code coverage analysis"
     echo -e "  -n, --no-extract       Don't extract the package before scanning"
-    echo -e "  -o, --output DIR       Set output directory (default: ./results)"
-    echo -e "  -i, --input DIR        Set input directory (default: ./packages)"
     echo -e "  -t, --timeout SECONDS  Set timeout in seconds (default: 30)"
+    echo -e "  -o, --output DIR       Set output directory (default: ./results)"
     echo
     echo -e "${BLUE}Example:${NC}"
     echo -e "  $0 --verbose suspicious_package.tar.gz"
-    echo -e "  $0 --input /tmp/downloads --output /tmp/reports malicious_pkg"
+    echo -e "  $0 --output ./my-results malicious_pkg"
 }
 
 # Default options
@@ -35,6 +34,7 @@ EXTRACT="--extract"
 INPUT_DIR="./packages"
 OUTPUT_DIR="./results"
 TIMEOUT=30
+OUTPUT_PATH=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -55,16 +55,12 @@ while [[ $# -gt 0 ]]; do
             EXTRACT=""
             shift
             ;;
-        -o|--output)
-            OUTPUT_DIR="$2"
-            shift 2
-            ;;
-        -i|--input)
-            INPUT_DIR="$2"
-            shift 2
-            ;;
         -t|--timeout)
             TIMEOUT="$2"
+            shift 2
+            ;;
+        -o|--output)
+            OUTPUT_PATH="$2"
             shift 2
             ;;
         *)
@@ -81,8 +77,47 @@ if [ -z "$PACKAGE_FILE" ]; then
     exit 1
 fi
 
-# Create directories if they don't exist
-mkdir -p "$INPUT_DIR" "$OUTPUT_DIR"
+# Clean up packages directory
+echo -e "${YELLOW}Cleaning packages directory...${NC}"
+if [ -d "$INPUT_DIR" ]; then
+    # Remove all files in the directory
+    rm -rf "${INPUT_DIR:?}"/*
+fi
+
+# Create input directory if it doesn't exist
+if [ ! -d "$INPUT_DIR" ]; then
+    echo -e "${YELLOW}Creating input directory...${NC}"
+    mkdir -p "$INPUT_DIR"
+fi
+
+# Ensure input directory has correct permissions
+echo -e "${YELLOW}Setting input directory permissions...${NC}"
+chmod 755 "$INPUT_DIR" || true
+chown $(id -u):$(id -g) "$INPUT_DIR" || true
+
+# Handle custom output path if specified
+if [ -n "$OUTPUT_PATH" ]; then
+    OUTPUT_DIR="$OUTPUT_PATH"
+    echo -e "${YELLOW}Using custom output directory: $OUTPUT_DIR${NC}"
+fi
+
+# Clean up results directory
+echo -e "${YELLOW}Cleaning results directory...${NC}"
+if [ -d "$OUTPUT_DIR" ]; then
+    # Remove all files in the directory
+    rm -rf "${OUTPUT_DIR:?}"/*
+fi
+
+# Create output directory if it doesn't exist
+if [ ! -d "$OUTPUT_DIR" ]; then
+    echo -e "${YELLOW}Creating output directory...${NC}"
+    mkdir -p "$OUTPUT_DIR"
+fi
+
+# Ensure output directory has correct permissions
+echo -e "${YELLOW}Setting output directory permissions...${NC}"
+chmod 755 "$OUTPUT_DIR" || true
+chown $(id -u):$(id -g) "$OUTPUT_DIR" || true
 
 # If package path is not inside INPUT_DIR, copy it there
 PACKAGE_PATH=$(realpath "$PACKAGE_FILE")
@@ -100,24 +135,55 @@ if [[ "$PACKAGE_PATH" != "$DEST_PATH"* ]]; then
         cp "$PACKAGE_PATH" "$DEST_PATH"
     fi
     
-    echo -e "${GREEN}Package copied to: $DEST_PATH${NC}"
+    # Set restrictive permissions on the copied package
+    if [ -d "$DEST_PATH" ]; then
+        find "$DEST_PATH" -type d -exec chmod 755 {} \;
+        find "$DEST_PATH" -type f -exec chmod 644 {} \;
+    else
+        chmod 644 "$DEST_PATH"
+    fi
+    
+    echo -e "${GREEN}Package copied to: $DEST_PATH with secure permissions${NC}"
+fi
+
+# Temporarily make input directory readable by Docker
+echo -e "${YELLOW}Temporarily adjusting permissions for Docker...${NC}"
+chmod 755 "$INPUT_DIR"
+chmod -R 755 "$DEST_PATH"
+
+# Ensure output directory is writable by Docker
+chmod 777 "$OUTPUT_DIR"
+
+# Clean up any previous result for this package
+REPORT_FILE="$OUTPUT_DIR/$PACKAGE_NAME-results.json"
+if [ -f "$REPORT_FILE" ]; then
+    echo -e "${YELLOW}Removing previous report file: $REPORT_FILE${NC}"
+    rm -f "$REPORT_FILE"
 fi
 
 echo -e "${YELLOW}Starting Nidhogg analysis of: $PACKAGE_NAME${NC}"
 echo -e "${YELLOW}This will run in an isolated Docker container with no network access${NC}"
 echo -e "${YELLOW}Timeout set to $TIMEOUT seconds${NC}"
 
-# Update docker image
-echo -e "${BLUE}Updating docker image...${NC}"
-docker-compose build
+# Create a temporary docker-compose override file
+echo "Creating temporary docker-compose override file..."
+cat > docker-compose.override.yml << EOF
+version: '3'
+
+services:
+  nidhogg-scanner:
+    command: $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME --output-file=$PACKAGE_NAME-results.json
+    user: "$(id -u):$(id -g)"
+EOF
 
 # Run the Docker container with timeout
-DOCKER_CMD="PACKAGE_FILE=$PACKAGE_NAME docker-compose run -t --rm nidhogg-scanner $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME"
-echo -e "${BLUE}Running command: $DOCKER_CMD${NC}"
-
-# Force TTY allocation and disable buffering
-timeout --foreground "$TIMEOUT" bash -c "$DOCKER_CMD"
+echo -e "${BLUE}Running docker-compose with override file...${NC}"
+export PACKAGE_FILE="$PACKAGE_NAME"
+timeout --foreground "$TIMEOUT" docker-compose run --rm nidhogg-scanner
 EXIT_CODE=$?
+
+# Clean up the temporary override file
+rm -f docker-compose.override.yml
 
 # Process exit code
 if [ $EXIT_CODE -eq 0 ]; then
@@ -131,36 +197,51 @@ fi
 
 echo -e "${BLUE}Command finished!${NC}"
 
+# Reset secure permissions after Docker run
+echo -e "${YELLOW}Resetting secure permissions...${NC}"
+chmod 700 "$INPUT_DIR"
+find "$INPUT_DIR" -type d -exec chmod 700 {} \;
+find "$INPUT_DIR" -type f -exec chmod 600 {} \;
+
 # Check if report was generated
-REPORT_PATH="$OUTPUT_DIR/${PACKAGE_NAME}_report.json"
-if [ -f "$REPORT_PATH" ]; then
+if [ -f "$REPORT_FILE" ]; then
     echo -e "${GREEN}Analysis complete!${NC}"
-    echo -e "${GREEN}Report saved to: $REPORT_PATH${NC}"
+    
+    # Set secure permissions on the report
+    chmod 600 "$REPORT_FILE"
+    chown $(id -u):$(id -g) "$REPORT_FILE"
+    
+    echo -e "${GREEN}Report saved to: $REPORT_FILE with secure permissions${NC}"
     
     # Show a summary of the report
     echo -e "${BLUE}Summary:${NC}"
     
     # Extract key information from the JSON report
     if command -v jq &> /dev/null; then
-        RISK_LEVEL=$(jq -r '.risk_level' "$REPORT_PATH")
+        RISK_LEVEL=$(jq -r '.risk_level' "$REPORT_FILE")
         # Use the specific suspicious_functions_count field or count the array length
-        SUSPICIOUS_COUNT=$(jq '.suspicious_functions_count // (.suspicious_functions | length)' "$REPORT_PATH")
-        TAINTED_VARS=$(jq '.taint_analysis.total_tainted_vars // "0"' "$REPORT_PATH")
-        EXFIL_ATTEMPTS=$(jq '.taint_analysis.total_exfiltration_attempts // "0"' "$REPORT_PATH")
+        SUSPICIOUS_COUNT=$(jq '.suspicious_functions_count // (.suspicious_functions | length)' "$REPORT_FILE")
         
         echo -e "Risk level: ${YELLOW}$RISK_LEVEL${NC}"
         echo -e "Suspicious functions: ${YELLOW}$SUSPICIOUS_COUNT${NC}"
-        echo -e "Tainted variables: ${YELLOW}$TAINTED_VARS${NC}"
-        echo -e "Exfiltration attempts: ${YELLOW}$EXFIL_ATTEMPTS${NC}"
     else
         echo -e "${YELLOW}Install jq for a better summary view${NC}"
-        echo -e "See the full report at: $REPORT_PATH"
+        echo -e "See the full report at: $REPORT_FILE"
         # Simple grep fallback for systems without jq
-        echo -e "Risk level: $(grep -o '"risk_level":[^,]*' "$REPORT_PATH" | cut -d ':' -f2 | tr -d '"')"
-        echo -e "Suspicious functions: $(grep -o '"suspicious_functions_count":[^,]*' "$REPORT_PATH" | cut -d ':' -f2 || echo "unknown")"
+        echo -e "Risk level: $(grep -o '"risk_level":[^,]*' "$REPORT_FILE" | cut -d ':' -f2 | tr -d '"')"
+        echo -e "Suspicious functions: $(grep -o '"suspicious_functions_count":[^,]*' "$REPORT_FILE" | cut -d ':' -f2 || echo "unknown")"
     fi
 else
     echo -e "${RED}No report was generated!${NC}"
 fi
 
-echo -e "${GREEN}Done!${NC}"
+echo -e "${GREEN}Done! Cleaning up...${NC}"
+
+# Final cleanup of input directory
+echo -e "${YELLOW}Final cleanup of input directory...${NC}"
+rm -rf "${INPUT_DIR:?}"/*
+
+# Make sure we're leaving the output directory with correct permissions
+chmod 755 "$OUTPUT_DIR" || true
+
+echo -e "${GREEN}Analysis complete. Report is in $OUTPUT_DIR${NC}"

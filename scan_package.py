@@ -7,6 +7,7 @@ Usage:
 
 Options:
     --output-dir=DIR    Directory to store analysis results (default: /data/output)
+    --output-file=FILE  Filename for the output report (default: <package>_report.json)
     --verbose           Enable verbose output
     --coverage          Enable enhanced code coverage analysis
     --extract           Extract the package before scanning (for .tar.gz, .whl, etc.)
@@ -28,14 +29,15 @@ from nidhogg.analysis.analyzer import detect_malware, global_suspicious_tracer, 
 from nidhogg.utils.debug import set_debug
 
 
-def analyze_package(package_path: str, output_dir: str, verbose: bool = False, 
-                   coverage: bool = False, extract: bool = False) -> Dict:
+def analyze_package(package_path: str, output_dir: str, output_file: Optional[str] = None,
+                   verbose: bool = False, coverage: bool = False, extract: bool = False) -> Dict:
     """
     Analyze a Python package with Nidhogg and save results
     
     Args:
         package_path: Path to the package file or directory
         output_dir: Directory to store analysis results
+        output_file: Filename for the output report, if None uses <package>_report.json
         verbose: Enable verbose output
         coverage: Enable enhanced code coverage
         extract: Extract the package before scanning
@@ -88,9 +90,15 @@ def analyze_package(package_path: str, output_dir: str, verbose: bool = False,
             "suspicious_functions_count": len(suspicious_findings)
         }
         
+        # Determine the report filename
+        if output_file is None:
+            package_name = os.path.basename(package_path)
+            report_filename = f"{package_name}_report.json"
+        else:
+            report_filename = output_file
+            
         # Save full report to output directory
-        package_name = os.path.basename(package_path)
-        report_path = os.path.join(output_dir, f"{package_name}_report.json")
+        report_path = os.path.join(output_dir, report_filename)
         
         with open(report_path, 'w') as f:
             json.dump(report, f, indent=2, default=str)
@@ -114,6 +122,8 @@ def main():
     parser.add_argument("package_path", help="Path to the package to analyze")
     parser.add_argument("--output-dir", default="/data/output", 
                         help="Directory to store analysis results")
+    parser.add_argument("--output-file", 
+                        help="Filename for the output report (default: <package>_report.json)")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--coverage", action="store_true", 
                         help="Enable enhanced code coverage analysis")
@@ -127,6 +137,7 @@ def main():
         analyze_package(
             args.package_path, 
             args.output_dir,
+            args.output_file,
             args.verbose,
             args.coverage,
             args.extract
