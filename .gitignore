@@ -21,3 +21,6 @@ MANIFEST
 __pycache__
 packages
 packages/*
+nidhogg-operating-packages
+nidhogg-operating-results
+testing

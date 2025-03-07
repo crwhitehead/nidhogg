@@ -31,8 +31,9 @@ print_usage() {
 VERBOSE=""
 COVERAGE=""
 EXTRACT="--extract"
-INPUT_DIR="./packages"
-OUTPUT_DIR="./results"
+INPUT_DIR="./nidhogg-operating-packages"
+TEMP_OUTPUT_DIR="./nidhogg-operating-results"
+OUTPUT_DIR="./results" # Default final destination for the report
 TIMEOUT=30
 OUTPUT_PATH=""
 
@@ -98,26 +99,32 @@ chown $(id -u):$(id -g) "$INPUT_DIR" || true
 # Handle custom output path if specified
 if [ -n "$OUTPUT_PATH" ]; then
     OUTPUT_DIR="$OUTPUT_PATH"
-    echo -e "${YELLOW}Using custom output directory: $OUTPUT_DIR${NC}"
+    echo -e "${YELLOW}Will copy final results to: $OUTPUT_DIR${NC}"
 fi
 
-# Clean up results directory
-echo -e "${YELLOW}Cleaning results directory...${NC}"
-if [ -d "$OUTPUT_DIR" ]; then
+# Clean up temporary results directory
+echo -e "${YELLOW}Cleaning temporary results directory...${NC}"
+if [ -d "$TEMP_OUTPUT_DIR" ]; then
     # Remove all files in the directory
-    rm -rf "${OUTPUT_DIR:?}"/*
+    rm -rf "${TEMP_OUTPUT_DIR:?}"/*
 fi
 
-# Create output directory if it doesn't exist
+# Create temporary output directory if it doesn't exist
+if [ ! -d "$TEMP_OUTPUT_DIR" ]; then
+    echo -e "${YELLOW}Creating temporary output directory...${NC}"
+    mkdir -p "$TEMP_OUTPUT_DIR"
+fi
+
+# Ensure temporary output directory has correct permissions
+echo -e "${YELLOW}Setting temporary output directory permissions...${NC}"
+chmod 755 "$TEMP_OUTPUT_DIR" || true
+chown $(id -u):$(id -g) "$TEMP_OUTPUT_DIR" || true
+
+# Create final output directory if it doesn't exist
 if [ ! -d "$OUTPUT_DIR" ]; then
-    echo -e "${YELLOW}Creating output directory...${NC}"
+    echo -e "${YELLOW}Creating final output directory...${NC}"
     mkdir -p "$OUTPUT_DIR"
 fi
-
-# Ensure output directory has correct permissions
-echo -e "${YELLOW}Setting output directory permissions...${NC}"
-chmod 755 "$OUTPUT_DIR" || true
-chown $(id -u):$(id -g) "$OUTPUT_DIR" || true
 
 # If package path is not inside INPUT_DIR, copy it there
 PACKAGE_PATH=$(realpath "$PACKAGE_FILE")
@@ -151,14 +158,14 @@ echo -e "${YELLOW}Temporarily adjusting permissions for Docker...${NC}"
 chmod 755 "$INPUT_DIR"
 chmod -R 755 "$DEST_PATH"
 
-# Ensure output directory is writable by Docker
-chmod 777 "$OUTPUT_DIR"
+# Ensure temporary output directory is writable by Docker
+chmod 777 "$TEMP_OUTPUT_DIR"
 
-# Clean up any previous result for this package
-REPORT_FILE="$OUTPUT_DIR/$PACKAGE_NAME-results.json"
-if [ -f "$REPORT_FILE" ]; then
-    echo -e "${YELLOW}Removing previous report file: $REPORT_FILE${NC}"
-    rm -f "$REPORT_FILE"
+# Clean up any previous result in the final output directory
+FINAL_REPORT_PATH="$OUTPUT_DIR/$PACKAGE_NAME-results.json"
+if [ -f "$FINAL_REPORT_PATH" ]; then
+    echo -e "${YELLOW}Removing previous report file: $FINAL_REPORT_PATH${NC}"
+    rm -f "$FINAL_REPORT_PATH"
 fi
 
 echo -e "${YELLOW}Starting Nidhogg analysis of: $PACKAGE_NAME${NC}"
@@ -172,7 +179,10 @@ version: '3'
 
 services:
   nidhogg-scanner:
-    command: $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME --output-file=$PACKAGE_NAME-results.json
+    volumes:
+      - ${INPUT_DIR}:/data/input
+      - ${TEMP_OUTPUT_DIR}:/data/output
+    command: $VERBOSE $COVERAGE $EXTRACT /data/input/$PACKAGE_NAME --output-file=results.json
     user: "$(id -u):$(id -g)"
 EOF
 
@@ -203,36 +213,51 @@ chmod 700 "$INPUT_DIR"
 find "$INPUT_DIR" -type d -exec chmod 700 {} \;
 find "$INPUT_DIR" -type f -exec chmod 600 {} \;
 
+# Define the source and destination report paths
+TEMP_REPORT_PATH="$TEMP_OUTPUT_DIR/results.json"
+FINAL_REPORT_PATH="$OUTPUT_DIR/$PACKAGE_NAME-results.json"
+
 # Check if report was generated
-if [ -f "$REPORT_FILE" ]; then
+if [ -f "$TEMP_REPORT_PATH" ]; then
     echo -e "${GREEN}Analysis complete!${NC}"
     
-    # Set secure permissions on the report
-    chmod 600 "$REPORT_FILE"
-    chown $(id -u):$(id -g) "$REPORT_FILE"
+    # Copy the report to the final destination
+    echo -e "${YELLOW}Copying report to final destination...${NC}"
+    cp "$TEMP_REPORT_PATH" "$FINAL_REPORT_PATH"
     
-    echo -e "${GREEN}Report saved to: $REPORT_FILE with secure permissions${NC}"
+    # Set secure permissions on the final report
+    chmod 644 "$FINAL_REPORT_PATH"
+    chown $(id -u):$(id -g) "$FINAL_REPORT_PATH"
+    
+    echo -e "${GREEN}Report saved to: $FINAL_REPORT_PATH${NC}"
     
     # Show a summary of the report
     echo -e "${BLUE}Summary:${NC}"
     
     # Extract key information from the JSON report
     if command -v jq &> /dev/null; then
-        RISK_LEVEL=$(jq -r '.risk_level' "$REPORT_FILE")
+        RISK_LEVEL=$(jq -r '.risk_level' "$FINAL_REPORT_PATH")
         # Use the specific suspicious_functions_count field or count the array length
-        SUSPICIOUS_COUNT=$(jq '.suspicious_functions_count // (.suspicious_functions | length)' "$REPORT_FILE")
+        SUSPICIOUS_COUNT=$(jq '.suspicious_functions_count // (.suspicious_functions | length)' "$FINAL_REPORT_PATH")
         
         echo -e "Risk level: ${YELLOW}$RISK_LEVEL${NC}"
         echo -e "Suspicious functions: ${YELLOW}$SUSPICIOUS_COUNT${NC}"
     else
         echo -e "${YELLOW}Install jq for a better summary view${NC}"
-        echo -e "See the full report at: $REPORT_FILE"
+        echo -e "See the full report at: $FINAL_REPORT_PATH"
         # Simple grep fallback for systems without jq
-        echo -e "Risk level: $(grep -o '"risk_level":[^,]*' "$REPORT_FILE" | cut -d ':' -f2 | tr -d '"')"
-        echo -e "Suspicious functions: $(grep -o '"suspicious_functions_count":[^,]*' "$REPORT_FILE" | cut -d ':' -f2 || echo "unknown")"
+        echo -e "Risk level: $(grep -o '"risk_level":[^,]*' "$FINAL_REPORT_PATH" | cut -d ':' -f2 | tr -d '"')"
+        echo -e "Suspicious functions: $(grep -o '"suspicious_functions_count":[^,]*' "$FINAL_REPORT_PATH" | cut -d ':' -f2 || echo "unknown")"
     fi
 else
     echo -e "${RED}No report was generated!${NC}"
+    # Check if there are any JSON files in the temp output directory
+    JSON_FILES=$(find "$TEMP_OUTPUT_DIR" -name "*.json" | head -1)
+    if [ -n "$JSON_FILES" ]; then
+        echo -e "${YELLOW}Found alternative report file: $(basename "$JSON_FILES")${NC}"
+        cp "$JSON_FILES" "$FINAL_REPORT_PATH"
+        echo -e "${GREEN}Copied alternative report to: $FINAL_REPORT_PATH${NC}"
+    fi
 fi
 
 echo -e "${GREEN}Done! Cleaning up...${NC}"
@@ -241,7 +266,11 @@ echo -e "${GREEN}Done! Cleaning up...${NC}"
 echo -e "${YELLOW}Final cleanup of input directory...${NC}"
 rm -rf "${INPUT_DIR:?}"/*
 
+# Final cleanup of temporary output directory
+echo -e "${YELLOW}Final cleanup of temporary output directory...${NC}"
+rm -rf "${TEMP_OUTPUT_DIR:?}"/*
+
 # Make sure we're leaving the output directory with correct permissions
 chmod 755 "$OUTPUT_DIR" || true
 
-echo -e "${GREEN}Analysis complete. Report is in $OUTPUT_DIR${NC}"
+echo -e "${GREEN}Analysis complete. Final report is in: $FINAL_REPORT_PATH${NC}"
