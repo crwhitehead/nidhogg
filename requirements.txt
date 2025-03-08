@@ -1,0 +1,2 @@
+crosshair-tool>=0.0.82
+colorama>=0.4.4
