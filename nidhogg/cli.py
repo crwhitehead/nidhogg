@@ -14,7 +14,7 @@ from typing import List, Optional
 
 from nidhogg.analyzers.analyzer_factory import AnalyzerFactory
 from nidhogg.core.config import AnalysisConfig, load_config
-from nidhogg.core.event_system import EventDispatcher, EventType
+from nidhogg.core.event_system import EventType
 from nidhogg.core.loader import find_functions_in_module, load_module_from_file
 from nidhogg.core.tracer import create_tracer
 from nidhogg.core.utils import colored, format_timestamp, parse_arg
@@ -25,7 +25,6 @@ from nidhogg.rules.rule_engine import RuleEngine, RuleCategory
 # Import CrossHair components
 from crosshair.core_and_libs import standalone_statespace
 from crosshair.tracers import COMPOSITE_TRACER
-
 
 def parse_args() -> argparse.Namespace:
     """
