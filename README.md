@@ -1,118 +1,133 @@
-# Nidhogg: Advanced Python Security Analysis Tool
+# Nidhogg: Python Bytecode Analysis and Malware Detection Tool
 
-## Project Overview
+Nidhogg is an advanced bytecode analysis tool that examines Python code execution at the bytecode level to detect suspicious or malicious patterns. Named after the dragon from Norse mythology that gnaws at the roots of Yggdrasil, Nidhogg digs deep into your Python code to find potential security issues.
 
-Nidhogg is a comprehensive Python security analysis tool that combines multiple security analysis techniques:
+## Features
 
-1. **Suspicious Function Detection**: Identifies and neutralizes potentially dangerous function calls like `eval()`, `exec()`, and `system()`.
-2. **Variable Tainting**: Tracks the flow of sensitive information through code to detect data exfiltration.
-3. **Enhanced Code Coverage**: Uses CrossHair to achieve high code coverage, exploring paths that normal execution wouldn't reach.
+- **Bytecode-level Analysis**: Examines Python code at the bytecode instruction level
+- **Multiple Analyzers**:
+  - **Opcode Analyzer**: Detects suspicious opcode patterns (eval/exec, obfuscation, etc.)
+  - **Call Analyzer**: Monitors function calls for suspicious behavior (system commands, file operations, etc.)
+  - **Import Analyzer**: Tracks module imports to detect malicious patterns
+  - **Behavioral Analyzer**: Identifies complex malicious behavior patterns
+- **Configurable Sensitivity**: Adjust detection sensitivity to reduce false positives
+- **Flexible Reporting**: Output results as console text, JSON, or HTML reports
+- **Extensible Architecture**: Easy to add new analyzers and detection rules
 
-## Project Structure
+## Installation
 
+```bash
+pip install nidhogg
 ```
-nidhogg/
-├── nidhogg/
-│   ├── main.py                   # Command-line entry point
-│   ├── core/                     # Core functionality
-│   │   ├── module_loader.py      # Module loading and execution
-│   │   ├── safe_replacements.py  # Safe function replacements
-│   │   └── simulator.py          # I/O and environment simulation
-│   ├── analysis/                 # Analysis components
-│   │   ├── analyzer.py           # Main analysis orchestration
-│   │   ├── coverage.py           # CrossHair configuration and coverage
-│   │   ├── suspicious.py         # Suspicious function detection
-│   │   └── taint.py              # Taint analysis and tracking
-│   └── utils/                    # Utility functions
-│       └── debug.py              # Debugging utilities
-└── examples/                     # Example files for testing
-    ├── data_exfiltration.py
-    └── code_execution.py
-```
-
-## Key Components
-
-### 1. Suspicious Function Detection
-
-The `SuspiciousFunctionTracer` class monitors for calls to dangerous functions and replaces them with safe alternatives. This prevents actual execution of potentially harmful code while allowing analysis to continue.
-
-**Key features**:
-- Detection of 15+ dangerous function types
-- Risk categorization (high/medium/low)
-- Detailed reporting of suspicious calls
-- Safe replacement functions for neutralized calls
-
-### 2. Variable Tainting
-
-The `TaintTrackingTracer` and `TaintTracker` classes implement sophisticated taint analysis:
-
-**Key features**:
-- Multiple taint types (file data, credentials, personal info, etc.)
-- Propagation tracking across variable assignments
-- Sensitive pattern detection in string literals
-- Detection of exfiltration attempts via network, files, and commands
-
-### 3. Enhanced Code Coverage
-
-Integration with CrossHair for comprehensive code path exploration:
-
-**Key features**:
-- Symbolic execution to explore multiple execution paths
-- Boundary value testing to trigger edge cases
-- Exception handler targeting
-- Configurable analysis options
-
-### 4. Safe Execution Environment
-
-The tool creates a sandboxed environment for analyzing potentially malicious code:
-
-**Key features**:
-- Simulated I/O operations
-- Safe replacements for dangerous functions
-- Controlled module loading
-- Exception handling for robust analysis
 
 ## Usage
 
+Basic usage:
+
 ```bash
-# Basic analysis
-nidhogg path/to/file.py
-
-# Verbose output
-nidhogg -v path/to/directory
-
-# Enable maximum code coverage
-nidhogg --coverage path/to/file.py
-
-# Enable maximum code coverage
-nidhogg --coverage path/to/file.py
+nidhogg example.py
 ```
 
-## Example Outputs
+Run a specific function in the file:
 
-For suspicious function detection:
-```
-=== SUSPICIOUS FUNCTIONS ===
-examples/code_execution.py:15: high risk: Dynamic code execution - Call to builtins.exec
-examples/code_execution.py:25: high risk: Unsafe deserialization - Call to pickle.loads
-examples/code_execution.py:32: medium risk: Network access - Call to urllib.request.urlopen
-examples/code_execution.py:36: high risk: Dynamic code execution - Call to builtins.exec
+```bash
+nidhogg example.py --function main arg1 arg2
 ```
 
-For taint analysis:
-```
-=== DATA FLOW ANALYSIS ===
-Found 5 tainted variables
-Detected 3 potential data exfiltration attempts
-  - examples/data_exfiltration.py:42: Potential exfiltration via requests.post
-    Keyword payload: cm9vdDp4OjA6MDpyb290Oi9yb290Oi9iaW4vYmFzaAo=
-    Tainted with: FILE_DATA from builtins.open (line 9, DERIVED)
+Adjust sensitivity and output:
+
+```bash
+nidhogg example.py --sensitivity high --format html --output report.html
 ```
 
-## Benefits Over Original Implementation
+## How It Works
 
-1. **Modularity**: Code is now organized into logical components for better maintainability
-2. **Extended Functionality**: Added multiple taint types and exfiltration vectors
-3. **Improved Coverage**: Enhanced code path exploration with CrossHair
-4. **Better User Experience**: Clearer reporting and command-line options
-5. **Organized Project Structure**: Follows Python package conventions
+Nidhogg uses CrossHair's tracing capabilities to monitor bytecode execution and detect suspicious patterns. Each analyzer focuses on different aspects of code behavior:
+
+1. **Opcode Analyzer**: Monitors bytecode instructions to detect patterns like `eval`/`exec` usage, code object construction, and suspicious string manipulation.
+
+2. **Call Analyzer**: Tracks function calls to detect system command execution, file operations, network connections, and other potentially malicious activities.
+
+3. **Import Analyzer**: Monitors module imports to detect suspicious modules or combinations of modules that may indicate malicious intent.
+
+4. **Behavioral Analyzer**: Looks for higher-level patterns across multiple events to detect complex malicious behaviors.
+
+## Example
+
+When analyzing a file with suspicious code:
+
+```python
+# suspicious.py
+import base64, os
+encoded_cmd = "bHMgLWxh"  # Base64 for "ls -la"
+os.system(base64.b64decode(encoded_cmd).decode())
+```
+
+Nidhogg can detect this:
+
+```bash
+$ nidhogg suspicious.py
+
+===============================================================================
+ NIDHOGG ANALYSIS REPORT: suspicious.py
+===============================================================================
+
+--------------------------------------------------------------------------------
+[HIGH] Use of potentially dangerous function 'system'
+Location: suspicious.py:3
+Rule ID: CALL-COMMAND_EXECUTION
+
+--------------------------------------------------------------------------------
+[MEDIUM] Potential obfuscated/encoded data detected
+Location: suspicious.py:2
+Rule ID: OPCODE-001
+
+--------------------------------------------------------------------------------
+[MEDIUM] Suspicious module import: base64
+Location: suspicious.py:1
+Rule ID: IMPORT-OBFUSCATION
+
+===============================================================================
+ SUMMARY
+===============================================================================
+Total findings: 3
+  HIGH: 1
+  MEDIUM: 2
+
+Analysis duration: 0.52 seconds
+===============================================================================
+```
+
+## Advanced Configuration
+
+Nidhogg can be configured with a JSON configuration file:
+
+```bash
+nidhogg example.py --config config.json
+```
+
+Example configuration:
+
+```json
+{
+  "sensitivity": "medium",
+  "trace_stdlib": false,
+  "enabled_analyzers": ["opcode", "call", "import", "behavioral"],
+  "report_format": "console",
+  "output_file": null
+}
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

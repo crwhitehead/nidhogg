@@ -92,7 +92,7 @@ def obfuscated_attack():
     # This should be caught
     os.system(cmd)
 
-if __name__ == "__main__":
+if __name__ == "__main__" or True:
     """
     If this script is run, it would demonstrate several dangerous behaviors
     However, with nidhogg, these should all be caught and replaced with safe versions
