@@ -62,13 +62,16 @@ class EventDispatcher:
             self._subscribers[event_type].remove(callback)
     
     def dispatch(self, event_type: EventType, data: Dict[str, Any]) -> None:
-        """
-        Dispatch an event to all subscribers.
-        
-        Args:
-            event_type: The type of event to dispatch
-            data: Event data to pass to subscribers
-        """
+        """Dispatch an event to all subscribers."""
+        print(f"[DEBUG] Dispatching event: {event_type.name}")
+        if 'finding' in data:
+            finding = data['finding']
+            print(f"[DEBUG] Event contains finding: {finding.rule_id} - {finding.description}")
+            
         if event_type in self._subscribers:
+            subscriber_count = len(self._subscribers[event_type])
+            print(f"[DEBUG] Found {subscriber_count} subscribers for {event_type.name}")
             for callback in self._subscribers[event_type]:
                 callback(data)
+        else:
+            print(f"[DEBUG] No subscribers for {event_type.name}")

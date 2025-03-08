@@ -61,19 +61,11 @@ class BaseAnalyzer(ABC):
         pass
     
     def add_finding(self, 
-                   rule_id: str,
-                   description: str,
-                   severity: Severity,
-                   details: Dict[str, Any]) -> None:
-        """
-        Add a finding from this analyzer.
-        
-        Args:
-            rule_id: Identifier of the rule that triggered this finding
-            description: Human-readable description of the finding
-            severity: Severity level of the finding
-            details: Additional details about the finding
-        """
+                rule_id: str,
+                description: str,
+                severity: Severity,
+                details: Dict[str, Any]) -> None:
+        """Add a finding from this analyzer."""
         finding = Finding(
             rule_id=rule_id,
             description=description,
@@ -81,9 +73,13 @@ class BaseAnalyzer(ABC):
             details=details,
             analyzer=self.__class__.__name__
         )
-        
+
+        # Add debug output for findings
+        print(f"[DEBUG] {self.__class__.__name__} added finding: {rule_id} - {description}")
+        print(f"[DEBUG] Severity: {severity.value}, Details: {details}")
+
         self.findings.append(finding)
-        
+
         # Dispatch event for this finding
         self.event_dispatcher.dispatch(
             EventType.SUSPICIOUS_PATTERN, 

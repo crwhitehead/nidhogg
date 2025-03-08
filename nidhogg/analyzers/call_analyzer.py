@@ -96,20 +96,18 @@ class CallAnalyzer(BaseAnalyzer):
                 self._analyze_call_opcode(event_data)
     
     def _analyze_function_call(self, event_data: Dict[str, Any]) -> None:
-        """
-        Analyze a function call event.
-        
-        Args:
-            event_data: Event data dictionary
-        """
+        """Analyze a function call event."""
         function_name = event_data['function_name']
         frame = event_data['frame']
+        
+        print(f"[DEBUG] Analyzing function call: {function_name}")
         
         # Store this call in history
         self.call_history.append(event_data)
         
         # Try to determine the full qualified name of the function
         qualified_name = self._get_qualified_name(frame)
+        print(f"[DEBUG] Qualified name: {qualified_name}")
         
         # Check if this function matches any of our suspicious categories
         for category, functions in self.SUSPICIOUS_FUNCTIONS.items():
@@ -117,6 +115,7 @@ class CallAnalyzer(BaseAnalyzer):
                 # Check for exact match or match at the end of qualified name
                 if (qualified_name == sus_func or 
                     qualified_name.endswith('.' + sus_func)):
+                    print(f"[DEBUG] Found suspicious function! Category: {category}, Function: {sus_func}")
                     self._report_suspicious_call(category, qualified_name, event_data)
                     return
     

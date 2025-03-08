@@ -92,14 +92,11 @@ class OpcodeAnalyzer(BaseAnalyzer):
         self._check_for_suspicious_sequences(event_data)
     
     def _check_sensitive_loads(self, event_data: Dict[str, Any]) -> None:
-        """
-        Check for loading of sensitive functions.
-        
-        Args:
-            event_data: Event data dictionary
-        """
+        """Check for loading of sensitive functions."""
         opname = event_data['opname']
         frame = event_data['frame']
+        
+        print(f"[DEBUG] Checking sensitive load: {opname}")
         
         if opname not in self.SENSITIVE_OPCODES:
             return
@@ -113,7 +110,9 @@ class OpcodeAnalyzer(BaseAnalyzer):
                     name_index = frame.f_code.co_code[offset + 1]
                     if name_index < len(frame.f_code.co_names):
                         name = frame.f_code.co_names[name_index]
+                        print(f"[DEBUG] Loaded attribute: {name}")
                         if name in self.SENSITIVE_OPCODES[opname]:
+                            print(f"[DEBUG] Found sensitive attribute: {name}")
                             self._report_sensitive_function(name, event_data)
     
     def _analyze_string_constant(self, string_value: str, event_data: Dict[str, Any]) -> None:

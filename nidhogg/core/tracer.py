@@ -86,14 +86,7 @@ class BytecodeTracer(TracingModule):
         return True
     
     def trace_op(self, frame, codeobj, opcodenum):
-        """
-        Trace each bytecode operation.
-        
-        Args:
-            frame: Current frame
-            codeobj: Code object
-            opcodenum: Opcode number
-        """
+        """Trace each bytecode operation."""
         # Get information about the current frame
         filename = frame.f_code.co_filename
         line_no = frame.f_lineno
@@ -106,6 +99,21 @@ class BytecodeTracer(TracingModule):
             
         # Get opcode name and argument
         opname = dis.opname[opcodenum]
+        
+        # Enhanced debug info for potentially interesting opcodes
+        sensitive_opcodes = ['LOAD_ATTR', 'LOAD_METHOD', 'CALL_FUNCTION', 'CALL_METHOD', 
+                            'MAKE_FUNCTION', 'IMPORT_NAME', 'LOAD_CONST']
+        
+        if opname in sensitive_opcodes:
+            print(f"[DEBUG-OPCODE] {opname} at {filename}:{line_no} in {function_name}")
+            
+            # Add extra info for LOAD_CONST
+            if opname == 'LOAD_CONST' and hasattr(frame, 'f_code'):
+                if hasattr(frame.f_code, 'co_consts') and lasti + 1 < len(frame.f_code.co_code):
+                    const_index = frame.f_code.co_code[lasti + 1]
+                    if const_index < len(frame.f_code.co_consts):
+                        const_value = frame.f_code.co_consts[const_index]
+                        print(f"[DEBUG-CONST] Value: {repr(const_value)[:100]}")
         
         # Gather code coverage data
         norm_path = normalize_path(filename)

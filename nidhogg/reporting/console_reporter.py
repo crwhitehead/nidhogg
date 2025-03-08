@@ -82,16 +82,18 @@ class ConsoleReporter(BaseReporter):
             print(text)
     
     def report_findings(self, results: AnalysisResults) -> None:
-        """
-        Report all findings from the analysis results.
+        """Report all findings from the analysis results."""
+        print(f"[DEBUG] Reporting {len(results.findings)} findings")
         
-        Args:
-            results: Analysis results to report
-        """
         if not results.findings:
+            print("[DEBUG] No findings to report!")
             self._print(self._colorize("No findings detected.", Fore.GREEN))
             return
         
+        # More detailed debug output
+        for i, finding in enumerate(results.findings):
+            print(f"[DEBUG] Finding {i+1}: {finding.rule_id} - {finding.description}")
+            
         # Print header
         self._print('\n' + self._colorize('=' * 80, Fore.CYAN))
         self._print(self._colorize(f" NIDHOGG ANALYSIS REPORT: {results.target_file}", Fore.CYAN))
