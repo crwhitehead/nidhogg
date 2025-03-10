@@ -1,14 +1,8 @@
-"""
-Base tracing functionality for Nidhogg.
-
-This module provides the core bytecode tracing functionality,
-leveraging CrossHair's tracing infrastructure.
-"""
-
 import dis
 import inspect
 import os
 import sys
+import types
 from collections import defaultdict, Counter
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
@@ -58,6 +52,9 @@ class BytecodeTracer(TracingModule):
         self.covered_opcodes: Dict[str, Set[int]] = defaultdict(set)  # Covered opcodes in each file
         self.function_calls: Dict[str, int] = Counter()  # Function call counts
         
+        # For tracking function calls
+        self.active_functions: List[Dict[str, Any]] = []
+        
     def should_trace(self, filename: str) -> bool:
         """
         Determine if a file should be traced.
@@ -86,7 +83,14 @@ class BytecodeTracer(TracingModule):
         return True
     
     def trace_op(self, frame, codeobj, opcodenum):
-        """Trace each bytecode operation."""
+        """
+        Trace each bytecode operation.
+        
+        Args:
+            frame: Current frame
+            codeobj: Code object
+            opcodenum: Opcode number
+        """
         # Get information about the current frame
         filename = frame.f_code.co_filename
         line_no = frame.f_lineno
@@ -99,21 +103,6 @@ class BytecodeTracer(TracingModule):
             
         # Get opcode name and argument
         opname = dis.opname[opcodenum]
-        
-        # Enhanced debug info for potentially interesting opcodes
-        sensitive_opcodes = ['LOAD_ATTR', 'LOAD_METHOD', 'CALL_FUNCTION', 'CALL_METHOD', 
-                            'MAKE_FUNCTION', 'IMPORT_NAME', 'LOAD_CONST']
-        
-        if opname in sensitive_opcodes:
-            print(f"[DEBUG-OPCODE] {opname} at {filename}:{line_no} in {function_name}")
-            
-            # Add extra info for LOAD_CONST
-            if opname == 'LOAD_CONST' and hasattr(frame, 'f_code'):
-                if hasattr(frame.f_code, 'co_consts') and lasti + 1 < len(frame.f_code.co_code):
-                    const_index = frame.f_code.co_code[lasti + 1]
-                    if const_index < len(frame.f_code.co_consts):
-                        const_value = frame.f_code.co_consts[const_index]
-                        print(f"[DEBUG-CONST] Value: {repr(const_value)[:100]}")
         
         # Gather code coverage data
         norm_path = normalize_path(filename)
@@ -134,9 +123,16 @@ class BytecodeTracer(TracingModule):
         # Format the indentation based on call depth
         indent = "  " * self.indent_level
         
-        # Print opcode if in verbose mode
+        # Enhanced logging for opcodes
         if self.verbose:
             print(f"{indent}{colored(opname, 'cyan')} at {colored(filename, 'blue')}:{colored(line_no, 'yellow')} in {colored(function_name, 'magenta')}")
+            
+            # Add extra debug info for constants
+            if opname == 'LOAD_CONST' and hasattr(frame, 'f_code'):
+                const_index = frame.f_code.co_code[lasti + 1]
+                if const_index < len(frame.f_code.co_consts):
+                    const_value = frame.f_code.co_consts[const_index]
+                    print(f"{indent}[DEBUG-CONST] Value: {const_value}")
         
         # Prepare event data
         event_data = {
@@ -155,57 +151,155 @@ class BytecodeTracer(TracingModule):
         # Dispatch opcode execution event
         self.event_dispatcher.dispatch(EventType.OPCODE_EXECUTED, event_data)
         
-        # Track call stack
-        if opname.startswith("CALL_"):
+        # Enhanced function call tracking
+        if opname.startswith("CALL_") or opname == "CALL":
             self.indent_level += 1
             self.call_stack.append(function_name)
             
-            # Track function calls for verbose mode
-            caller = f"{filename}:{function_name}"
+            # Enhanced extraction of function calls
+            called_func, call_args = self._get_called_function_and_args(frame, opname, lasti)
             
-            # Additional handling for function calls
-            if len(self.call_stack) > 1:  # Not the entry point
-                # Try to determine the called function
-                called_func = self._get_called_function(frame)
-                if called_func:
-                    call_info = f"{called_func.__module__}.{called_func.__name__}" if hasattr(called_func, "__module__") else str(called_func)
-                    self.function_calls[call_info] += 1
-                    
-                    if self.verbose:
-                        print(f"{indent}CALL: {colored(call_info, 'green')}")
+            if called_func:
+                # Record detailed info about the function call
+                func_module = getattr(called_func, '__module__', '<unknown>')
+                func_name = getattr(called_func, '__name__', str(called_func))
+                qualified_name = f"{func_module}.{func_name}"
                 
+                # Increment the call counter
+                self.function_calls[qualified_name] += 1
+                
+                # Track this function call
+                call_info = {
+                    'function': called_func,
+                    'qualified_name': qualified_name,
+                    'args': call_args,
+                    'location': f"{filename}:{line_no}",
+                    'caller': function_name
+                }
+                
+                self.active_functions.append(call_info)
+                
+                # Enhanced debug logging
+                if self.verbose:
+                    arg_str = ', '.join(repr(arg) for arg in call_args) if call_args else ''
+                    print(f"{indent}[DEBUG-CALL] {colored(qualified_name, 'green')}({arg_str})")
+                
+                # Add function call details to event data
+                event_data.update({
+                    'called_function': called_func,
+                    'called_function_name': qualified_name,
+                    'call_args': call_args
+                })
+                
+                # Dispatch specific function call event
                 self.event_dispatcher.dispatch(EventType.FUNCTION_CALLED, event_data)
+            else:
+                # Debug info when we can't identify the function
+                if self.verbose:
+                    print(f"{indent}[DEBUG-CALL] Unable to identify function being called")
                 
         elif opname.startswith("RETURN_"):
             if self.indent_level > 0:
                 self.indent_level -= 1
                 if self.call_stack:
                     self.call_stack.pop()
+                if self.active_functions:
+                    self.active_functions.pop()
+        
+        # Enhanced tracking for attribute access - helpful for finding os.system calls, etc.
+        elif opname == 'LOAD_ATTR':
+            if hasattr(frame, 'f_code') and hasattr(frame.f_code, 'co_names'):
+                offset = lasti
+                if offset + 1 < len(frame.f_code.co_code):
+                    name_index = frame.f_code.co_code[offset + 1]
+                    if name_index < len(frame.f_code.co_names):
+                        attr_name = frame.f_code.co_names[name_index]
+                        if self.verbose:
+                            print(f"{indent}[DEBUG] Loaded attribute: {attr_name}")
+                        
+                        # Check if this is a suspicious attribute 
+                        if attr_name in ('system', 'exec', 'eval', 'popen', 'subprocess', 'Popen'):
+                            # Add details to event data
+                            event_data['attribute_name'] = attr_name
+                            event_data['is_suspicious'] = True
     
-    def _get_called_function(self, frame) -> Optional[Callable]:
+    def _get_called_function_and_args(self, frame, opname, offset) -> Tuple[Optional[Callable], List[Any]]:
         """
-        Attempt to determine which function is being called.
+        Enhanced method to extract the function being called and its arguments.
         
         Args:
             frame: Current frame
+            opname: Opcode name 
+            offset: Bytecode offset
             
         Returns:
-            Called function if determinable, None otherwise
+            Tuple of (function object, argument list)
         """
-        # This is a best-effort function and may not always work
         try:
-            if frame and hasattr(frame, 'f_back'):
-                # Sometimes we can find the function in the frame's locals
-                # This is a heuristic and won't work for all cases
+            # Enhanced function detection
+            if not frame or not frame.f_code:
+                return None, []
                 
-                # Loop through locals to find callable objects
+            # Try to get the function from different locations
+            func = None
+            args = []
+            
+            # Different handling based on opcode
+            if opname == 'CALL' and hasattr(frame, 'f_valuestack'):
+                # For Python 3.11+
+                try:
+                    # In 3.11+ the function might be on the value stack
+                    stack_depth = frame.f_code.co_code[offset + 1]
+                    if hasattr(frame.f_valuestack, 'items'):
+                        # Some Python versions expose value stack as items
+                        stack_items = list(frame.f_valuestack.items())
+                        if len(stack_items) >= stack_depth:
+                            func = stack_items[-stack_depth]
+                except (AttributeError, IndexError) as e:
+                    if self.verbose:
+                        print(f"[DEBUG] Error getting function from valuestack: {e}")
+            
+            # Try to get from locals as a fallback
+            if func is None and hasattr(frame, 'f_locals'):
                 for name, value in frame.f_locals.items():
                     if callable(value) and not name.startswith('_'):
-                        return value
-        except Exception:
-            pass
-        
-        return None
+                        # This is a heuristic, not always accurate
+                        func = value
+                        break
+            
+            # Another approach - try to get the function from the evaluation stack
+            # This is challenging and implementation-dependent
+            if func is None and hasattr(frame, 'f_code'):
+                try:
+                    # Try to use inspection to get more details about the frame
+                    frame_info = inspect.getframeinfo(frame)
+                    if self.verbose:
+                        print(f"[DEBUG] Frame info: {frame_info.function}")
+                        
+                    # For built-in functions, we might find them in globals
+                    if hasattr(frame, 'f_globals'):
+                        for name, value in frame.f_globals.items():
+                            if callable(value) and frame_info.code_context and name in ''.join(frame_info.code_context):
+                                func = value
+                                break
+                except Exception as e:
+                    if self.verbose:
+                        print(f"[DEBUG] Error during frame inspection: {e}")
+            
+            # Try to extract arguments
+            # This is also challenging and implementation-dependent
+            if hasattr(frame, 'f_locals'):
+                # Look for argument-like variables
+                for name, value in frame.f_locals.items():
+                    if name.startswith('arg') or name in ('a', 'b', 'c', 'x', 'y', 'z'):
+                        args.append(value)
+            
+            return func, args
+                
+        except Exception as e:
+            if self.verbose:
+                print(f"[DEBUG] Error determining called function: {e}")
+            return None, []
     
     def print_coverage_statistics(self) -> None:
         """Print detailed code coverage statistics."""

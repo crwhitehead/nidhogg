@@ -33,9 +33,8 @@ class AnalysisConfig:
     report_format: str = "console"  # "console", "json", "html"
     output_file: Optional[str] = None
     
-    # Analysis customization
     enabled_analyzers: List[str] = field(
-        default_factory=lambda: ["opcode", "call", "import", "behavioral"]
+        default_factory=lambda: ["opcode", "call", "import", "behavioral", "symbolic"]
     )
     enabled_rules: List[str] = field(
         default_factory=lambda: ["all"]

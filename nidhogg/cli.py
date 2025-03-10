@@ -1,8 +1,8 @@
 """
-Command-line interface for Nidhogg.
+Updated CLI for Nidhogg.
 
-This module provides the command-line interface for scanning
-Python files with Nidhogg.
+This module provides an enhanced command-line interface for scanning
+Python files with Nidhogg, including support for symbolic analysis.
 """
 
 import argparse
@@ -52,7 +52,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--sensitivity', choices=['low', 'medium', 'high'], default='medium',
                       help='Detection sensitivity level')
     parser.add_argument('--analyzers', 
-                      help='Comma-separated list of analyzers to enable (opcode,call,import,behavioral)')
+                      help='Comma-separated list of analyzers to enable (opcode,call,import,behavioral,symbolic)')
+    parser.add_argument('--symbolic', action='store_true',
+                      help='Enable symbolic analysis for deeper function inspection')
     
     # Output options
     parser.add_argument('--output', '-o', 
@@ -99,6 +101,10 @@ def create_config_from_args(args: argparse.Namespace) -> AnalysisConfig:
     if args.analyzers:
         config.enabled_analyzers = args.analyzers.split(',')
     
+    # Add symbolic analyzer if requested
+    if args.symbolic and 'symbolic' not in config.enabled_analyzers:
+        config.enabled_analyzers.append('symbolic')
+    
     return config
 
 def run_analysis(config: AnalysisConfig) -> AnalysisResults:
@@ -129,6 +135,7 @@ def run_analysis(config: AnalysisConfig) -> AnalysisResults:
     )
     
     # Subscribe to findings
+    print("[DEBUG] Subscribed to SUSPICIOUS_PATTERN events")
     def on_finding(event_data: dict) -> None:
         finding = event_data.get('finding')
         if finding:
@@ -219,6 +226,7 @@ def main() -> int:
     )
     
     # Generate report
+    print(f"[DEBUG] Reporting {len(results.findings)} findings")
     reporter.report_findings(results)
     
     # Print summary

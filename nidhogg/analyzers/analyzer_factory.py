@@ -1,8 +1,5 @@
 """
-Analyzer factory for Nidhogg.
-
-This module provides factory functions for creating analyzers
-based on configuration.
+Updates to analyzer_factory.py to include the SymbolicAnalyzer
 """
 
 from typing import Dict, List, Optional, Set, Type
@@ -12,6 +9,7 @@ from nidhogg.analyzers.opcode_analyzer import OpcodeAnalyzer
 from nidhogg.analyzers.call_analyzer import CallAnalyzer
 from nidhogg.analyzers.import_analyzer import ImportAnalyzer
 from nidhogg.analyzers.behavioral_analyzer import BehavioralAnalyzer
+from nidhogg.analyzers.symbolic_analyzer import SymbolicAnalyzer
 from nidhogg.core.event_system import EventDispatcher
 
 
@@ -24,6 +22,7 @@ class AnalyzerFactory:
         'call': CallAnalyzer,
         'import': ImportAnalyzer,
         'behavioral': BehavioralAnalyzer,
+        'symbolic': SymbolicAnalyzer,  # Add symbolic analyzer to registry
     }
     
     @classmethod
@@ -93,5 +92,11 @@ class AnalyzerFactory:
                     sensitivity=sensitivity
                 )
                 analyzers.append(analyzer)
+                
+        # Debug log the created analyzers
+        print(f"[DEBUG] Created {len(analyzers)} analyzers:")
+        for analyzer in analyzers:
+            print(f"[DEBUG]   - {analyzer.__class__.__name__}")
+            print(f"[DEBUG]     Monitors events: {[e.name for e in analyzer.get_monitored_events()]}")
         
         return analyzers
